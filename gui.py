@@ -18,9 +18,9 @@ class P2PMessengerGUI:
             'accent_primary': '#9b59b6',
             'accent_secondary': '#8e44ad',
             'accent_hover': '#a569bd',
-            'accent_success': '#2ecc71',
+            'accent_success': '#00c92b',
             'accent_danger': '#a569bd',
-            'accent_warning': "#00ff37",
+            'accent_warning': "#00c92b",
             'text_primary': '#e8e8e8',
             'text_secondary': '#b8b8b8',
             'text_accent': '#d4a5f0',
@@ -527,9 +527,9 @@ class P2PMessengerGUI:
             self.members_listbox.delete(0, tk.END)
             for member in group['members']:
                 if member == group['admin']:
-                    self.members_listbox.insert(tk.END, f"👑 {member} (админ)")
+                    self.members_listbox.insert(tk.END, f"{member} (админ)")
                 else:
-                    self.members_listbox.insert(tk.END, f"👤 {member}")
+                    self.members_listbox.insert(tk.END, f"{member}")
             
             self.load_group_messages(group_id)
     
