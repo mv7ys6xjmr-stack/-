@@ -1,15 +1,18 @@
 import tkinter as tk
-from tkinter import scrolledtext, messagebox, ttk, filedialog, simpledialog
+from tkinter import scrolledtext, messagebox, ttk, filedialog
 import threading
-from node import P2PNode
+import os
+import re
+import time
 from datetime import datetime
+from node import P2PNode
 
 class P2PMessengerGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("")
-        self.root.geometry("1100x750")
-        self.root.minsize(900, 600)
+        self.root.title("Хуессенджер")
+        self.root.geometry("1200x800")
+        self.root.minsize(1000, 700)
         
         self.colors = {
             'bg_dark': '#1a0b2e',
@@ -18,9 +21,9 @@ class P2PMessengerGUI:
             'accent_primary': '#9b59b6',
             'accent_secondary': '#8e44ad',
             'accent_hover': '#a569bd',
-            'accent_success': '#00c92b',
+            'accent_success': "#2dc200",
             'accent_danger': '#a569bd',
-            'accent_warning': "#00c92b",
+            'accent_warning': '#31cf01',
             'text_primary': '#e8e8e8',
             'text_secondary': '#b8b8b8',
             'text_accent': '#d4a5f0',
@@ -32,10 +35,11 @@ class P2PMessengerGUI:
         
         self.root.configure(bg=self.colors['bg_dark'])
         
-        self.groups = {}  
+        self.groups = {}
         self.current_group = None
         self.current_private_chat = None
-        self.available_peers = []  
+        self.available_peers = []
+        self.relay_connected = False
         
         self.setup_ttk_style()
         self.node = None
@@ -82,144 +86,171 @@ class P2PMessengerGUI:
         )
         title_label.pack(pady=20)
         
-        subtitle_label = tk.Label(
-            center_frame,
-            text="",
-            fg=self.colors['text_secondary'],
-            bg=self.colors['bg_dark'],
-            font=('Arial', 11)
-        )
-        subtitle_label.pack(pady=(0, 40))
+        # Ноутбук с вкладками для разных типов подключения
+        conn_notebook = ttk.Notebook(center_frame)
+        conn_notebook.pack(pady=20)
         
-        card_frame = tk.Frame(
-            center_frame, 
-            bg=self.colors['bg_medium'],
-            relief=tk.RAISED,
-            bd=2
-        )
-        card_frame.pack(pady=10, padx=30, ipadx=20, ipady=20)
+        # Вкладка локального подключения
+        local_frame = tk.Frame(conn_notebook, bg=self.colors['bg_dark'])
+        conn_notebook.add(local_frame, text="Локальная сеть")
         
-        user_frame = tk.Frame(card_frame, bg=self.colors['bg_medium'])
-        user_frame.pack(pady=10)
+        # Вкладка интернет-подключения
+        internet_frame = tk.Frame(conn_notebook, bg=self.colors['bg_dark'])
+        conn_notebook.add(internet_frame, text="Интернет")
         
-        tk.Label(
-            user_frame, 
-            text="Имя пользователя:", 
-            fg=self.colors['text_primary'], 
-            bg=self.colors['bg_medium'], 
-            font=('Arial', 11, 'bold')
-        ).pack(side=tk.LEFT, padx=5)
+        # === Локальная сеть ===
+        local_card = tk.Frame(local_frame, bg=self.colors['bg_medium'], relief=tk.RAISED, bd=2)
+        local_card.pack(pady=20, padx=30, ipadx=20, ipady=20)
         
-        self.username_entry = tk.Entry(
-            card_frame, 
-            width=30, 
-            font=('Arial', 11),
-            bg=self.colors['bg_light'],
-            fg=self.colors['text_primary'],
-            insertbackground=self.colors['text_accent'],
-            relief=tk.FLAT
-        )
+        tk.Label(local_card, text="Имя пользователя:", fg=self.colors['text_primary'], 
+                bg=self.colors['bg_medium'], font=('Arial', 11, 'bold')).pack(pady=5)
+        self.username_entry = tk.Entry(local_card, width=30, font=('Arial', 11),
+                                       bg=self.colors['bg_light'], fg=self.colors['text_primary'],
+                                       insertbackground=self.colors['text_accent'], relief=tk.FLAT)
         self.username_entry.pack(pady=5)
         self.username_entry.insert(0, "User")
         
-        port_frame = tk.Frame(card_frame, bg=self.colors['bg_medium'])
-        port_frame.pack(pady=10)
-        
-        tk.Label(
-            port_frame, 
-            text="Ваш порт:", 
-            fg=self.colors['text_primary'], 
-            bg=self.colors['bg_medium'], 
-            font=('Arial', 11, 'bold')
-        ).pack(side=tk.LEFT, padx=5)
-        
-        self.port_entry = tk.Entry(
-            card_frame, 
-            width=30, 
-            font=('Arial', 11),
-            bg=self.colors['bg_light'],
-            fg=self.colors['text_primary'],
-            insertbackground=self.colors['text_accent'],
-            relief=tk.FLAT
-        )
+        tk.Label(local_card, text="Ваш порт:", fg=self.colors['text_primary'], 
+                bg=self.colors['bg_medium'], font=('Arial', 11, 'bold')).pack(pady=5)
+        self.port_entry = tk.Entry(local_card, width=30, font=('Arial', 11),
+                                   bg=self.colors['bg_light'], fg=self.colors['text_primary'],
+                                   insertbackground=self.colors['text_accent'], relief=tk.FLAT)
         self.port_entry.pack(pady=5)
         self.port_entry.insert(0, "5000")
         
-        tk.Frame(card_frame, height=2, bg=self.colors['accent_primary']).pack(fill=tk.X, pady=10)
+        tk.Frame(local_card, height=2, bg=self.colors['accent_primary']).pack(fill=tk.X, pady=10)
         
-        tk.Label(
-            card_frame, 
-            text="Подключиться к пиру:", 
-            fg=self.colors['text_secondary'], 
-            bg=self.colors['bg_medium'], 
-            font=('Arial', 10)
-        ).pack()
+        tk.Label(local_card, text="Подключиться к пиру в локальной сети:", 
+                fg=self.colors['text_secondary'], bg=self.colors['bg_medium']).pack()
         
-        peer_frame = tk.Frame(card_frame, bg=self.colors['bg_medium'])
+        peer_frame = tk.Frame(local_card, bg=self.colors['bg_medium'])
         peer_frame.pack(pady=5)
         
         tk.Label(peer_frame, text="IP:", fg=self.colors['text_primary'], bg=self.colors['bg_medium']).pack(side=tk.LEFT, padx=5)
-        self.peer_ip_entry = tk.Entry(
-            peer_frame, 
-            width=15, 
-            font=('Arial', 11),
-            bg=self.colors['bg_light'],
-            fg=self.colors['text_primary'],
-            insertbackground=self.colors['text_accent'],
-            relief=tk.FLAT
-        )
+        self.peer_ip_entry = tk.Entry(peer_frame, width=15, font=('Arial', 11),
+                                      bg=self.colors['bg_light'], fg=self.colors['text_primary'],
+                                      insertbackground=self.colors['text_accent'], relief=tk.FLAT)
         self.peer_ip_entry.pack(side=tk.LEFT, padx=5)
         self.peer_ip_entry.insert(0, "192.168.1.")
         
         tk.Label(peer_frame, text="Порт:", fg=self.colors['text_primary'], bg=self.colors['bg_medium']).pack(side=tk.LEFT, padx=5)
-        
-        self.peer_port_entry = tk.Entry(
-            peer_frame, 
-            width=10, 
-            font=('Arial', 11),
-            bg=self.colors['bg_light'],
-            fg=self.colors['text_primary'],
-            insertbackground=self.colors['text_accent'],
-            relief=tk.FLAT
-        )
+        self.peer_port_entry = tk.Entry(peer_frame, width=10, font=('Arial', 11),
+                                        bg=self.colors['bg_light'], fg=self.colors['text_primary'],
+                                        insertbackground=self.colors['text_accent'], relief=tk.FLAT)
         self.peer_port_entry.pack(side=tk.LEFT, padx=5)
-        self.peer_port_entry.insert(0, "5001")
+        self.peer_port_entry.insert(0, "5000")
         
-        btn_start = tk.Button(
+        # === Интернет ===
+        internet_card = tk.Frame(internet_frame, bg=self.colors['bg_medium'], relief=tk.RAISED, bd=2)
+        internet_card.pack(pady=20, padx=30, ipadx=20, ipady=20)
+        
+        tk.Label(internet_card, text="Имя пользователя:", fg=self.colors['text_primary'], 
+                bg=self.colors['bg_medium'], font=('Arial', 11, 'bold')).pack(pady=5)
+        self.internet_username_entry = tk.Entry(internet_card, width=30, font=('Arial', 11),
+                                                bg=self.colors['bg_light'], fg=self.colors['text_primary'],
+                                                insertbackground=self.colors['text_accent'], relief=tk.FLAT)
+        self.internet_username_entry.pack(pady=5)
+        self.internet_username_entry.insert(0, "User_Internet")
+        
+        tk.Label(internet_card, text="Ваш порт:", fg=self.colors['text_primary'], 
+                bg=self.colors['bg_medium'], font=('Arial', 11, 'bold')).pack(pady=5)
+        self.internet_port_entry = tk.Entry(internet_card, width=30, font=('Arial', 11),
+                                            bg=self.colors['bg_light'], fg=self.colors['text_primary'],
+                                            insertbackground=self.colors['text_accent'], relief=tk.FLAT)
+        self.internet_port_entry.pack(pady=5)
+        self.internet_port_entry.insert(0, "5000")
+        
+        tk.Label(internet_card, text="Релей-сервер (IP:порт):", fg=self.colors['text_primary'], 
+                bg=self.colors['bg_medium'], font=('Arial', 11, 'bold')).pack(pady=5)
+        self.relay_server_entry = tk.Entry(internet_card, width=30, font=('Arial', 11),
+                                           bg=self.colors['bg_light'], fg=self.colors['text_primary'],
+                                           insertbackground=self.colors['text_accent'], relief=tk.FLAT)
+        self.relay_server_entry.pack(pady=5)
+        self.relay_server_entry.insert(0, "127.0.0.1:5000")
+        
+        tk.Frame(internet_card, height=2, bg=self.colors['accent_primary']).pack(fill=tk.X, pady=10)
+        
+        tk.Label(internet_card, text="Подключиться к пиру по имени:", 
+                fg=self.colors['text_secondary'], bg=self.colors['bg_medium']).pack()
+        
+        username_frame = tk.Frame(internet_card, bg=self.colors['bg_medium'])
+        username_frame.pack(pady=5)
+        
+        tk.Label(username_frame, text="Имя пира:", fg=self.colors['text_primary'], 
+                bg=self.colors['bg_medium']).pack(side=tk.LEFT, padx=5)
+        self.peer_username_entry = tk.Entry(username_frame, width=20, font=('Arial', 11),
+                                            bg=self.colors['bg_light'], fg=self.colors['text_primary'],
+                                            insertbackground=self.colors['text_accent'], relief=tk.FLAT)
+        self.peer_username_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Кнопки
+        btn_start_local = tk.Button(
             center_frame, 
-            text="Запустить узел", 
-            command=self.start_node,
+            text="Запустить узел (локальная сеть)", 
+            command=lambda: self.start_node('local'),
             bg=self.colors['accent_primary'],
             fg='white',
-            font=('Arial', 14, 'bold'),
+            font=('Arial', 12, 'bold'),
             padx=30,
             pady=10,
             cursor='hand2',
             relief=tk.FLAT,
-            activebackground=self.colors['accent_hover'],
-            activeforeground='white'
+            activebackground=self.colors['accent_hover']
         )
-        btn_start.pack(pady=20)
+        btn_start_local.pack(pady=10)
         
-        btn_connect = tk.Button(
+        btn_start_internet = tk.Button(
             center_frame,
-            text="Подключиться к пиру",
-            command=self.connect_to_peer,
+            text="Запустить узел (интернет)",
+            command=lambda: self.start_node('internet'),
             bg=self.colors['accent_secondary'],
+            fg='white',
+            font=('Arial', 12, 'bold'),
+            padx=30,
+            pady=10,
+            cursor='hand2',
+            relief=tk.FLAT,
+            activebackground=self.colors['accent_hover']
+        )
+        btn_start_internet.pack(pady=5)
+        
+        btn_connect_local = tk.Button(
+            center_frame,
+            text="Подключиться к пиру (локально)",
+            command=self.connect_to_peer_local,
+            bg=self.colors['accent_success'],
             fg='white',
             font=('Arial', 11),
             padx=20,
             pady=5,
             cursor='hand2',
-            relief=tk.FLAT,
-            activebackground=self.colors['accent_hover']
+            relief=tk.FLAT
         )
-        btn_connect.pack(pady=5)
+        btn_connect_local.pack(pady=5)
+        
+        btn_connect_internet = tk.Button(
+            center_frame,
+            text="Подключиться к пиру по имени (интернет)",
+            command=self.connect_to_peer_by_name,
+            bg=self.colors['accent_success'],
+            fg='white',
+            font=('Arial', 11),
+            padx=20,
+            pady=5,
+            cursor='hand2',
+            relief=tk.FLAT
+        )
+        btn_connect_internet.pack(pady=5)
     
-    def start_node(self):
+    def start_node(self, connection_type='local'):
         try:
-            port = int(self.port_entry.get())
-            username = self.username_entry.get()
+            if connection_type == 'local':
+                port = int(self.port_entry.get())
+                username = self.username_entry.get()
+            else:
+                port = int(self.internet_port_entry.get())
+                username = self.internet_username_entry.get()
+                relay_server = self.relay_server_entry.get()
             
             if not username.strip():
                 messagebox.showerror("Ошибка", "Введите имя пользователя")
@@ -233,6 +264,30 @@ class P2PMessengerGUI:
             node_thread = threading.Thread(target=self.node.start, daemon=True)
             node_thread.start()
             
+            # Если интернет-режим, подключаемся к релей-серверу
+            if connection_type == 'internet':
+                if ':' in relay_server:
+                    relay_host, relay_port = relay_server.split(':')
+                    relay_port = int(relay_port)
+                else:
+                    relay_host = relay_server
+                    relay_port = 5000
+                
+                # Запускаем регистрацию в отдельном потоке
+                def register():
+                    if self.node.register_with_relay(relay_host, relay_port):
+                        self.relay_connected = True
+                        self.root.after(0, lambda: messagebox.showinfo("Успех", 
+                            f"Подключен к релей-серверу {relay_host}:{relay_port}\n"
+                            f"Ваш публичный IP: {self.node.public_ip}:{port}"))
+                    else:
+                        self.root.after(0, lambda: messagebox.showwarning("Предупреждение",
+                            "Не удалось подключиться к релей-серверу.\n"
+                            "Будут доступны только локальные соединения."))
+                
+                threading.Thread(target=register, daemon=True).start()
+            
+            time.sleep(0.5)
             self.setup_main_interface()
             
         except ValueError:
@@ -240,7 +295,7 @@ class P2PMessengerGUI:
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось запустить узел: {e}")
     
-    def connect_to_peer(self):
+    def connect_to_peer_local(self):
         if self.node:
             ip = self.peer_ip_entry.get()
             try:
@@ -253,10 +308,30 @@ class P2PMessengerGUI:
             except ValueError:
                 messagebox.showerror("Ошибка", "Порт должен быть числом")
     
+    def connect_to_peer_by_name(self):
+        if self.node:
+            username = self.peer_username_entry.get()
+            if not username:
+                messagebox.showwarning("Внимание", "Введите имя пира")
+                return
+            
+            self.update_status()
+            
+            def do_connect():
+                if self.node.connect_to_peer_by_username(username):
+                    self.root.after(0, lambda: messagebox.showinfo("Успех", f"Подключен к {username}"))
+                    self.root.after(0, self.refresh_peers_list)
+                else:
+                    self.root.after(0, lambda: messagebox.showwarning("Ошибка", f"Не удалось найти пира {username}"))
+                self.root.after(0, lambda: self.update_status())
+            
+            threading.Thread(target=do_connect, daemon=True).start()
+    
     def setup_main_interface(self):
         for widget in self.root.winfo_children():
             widget.destroy()
         
+        # Верхняя панель
         info_frame = tk.Frame(self.root, bg=self.colors['bg_medium'], height=70)
         info_frame.pack(fill=tk.X)
         
@@ -272,6 +347,20 @@ class P2PMessengerGUI:
         )
         self.status_label.pack(side=tk.LEFT, pady=20, padx=20)
         
+        refresh_btn = tk.Button(
+            status_frame,
+            text="🔄 Обновить",
+            command=self.refresh_peers_list,
+            bg=self.colors['accent_secondary'],
+            fg='white',
+            font=('Arial', 9),
+            cursor='hand2',
+            relief=tk.FLAT,
+            padx=10,
+            pady=5
+        )
+        refresh_btn.pack(side=tk.LEFT, padx=10)
+        
         exit_frame = tk.Frame(info_frame, bg=self.colors['bg_medium'])
         exit_frame.pack(side=tk.RIGHT, fill=tk.Y)
         
@@ -285,18 +374,20 @@ class P2PMessengerGUI:
             cursor='hand2',
             relief=tk.FLAT,
             padx=20,
-            pady=8,
-            activebackground="#ffffff"
+            pady=8
         )
         exit_btn.pack(pady=18, padx=20)
         
+        # Основной контейнер
         main_container = tk.Frame(self.root, bg=self.colors['bg_dark'])
         main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        left_panel = tk.Frame(main_container, bg=self.colors['bg_medium'], width=250)
+        # Левая панель
+        left_panel = tk.Frame(main_container, bg=self.colors['bg_medium'], width=280)
         left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         left_panel.pack_propagate(False)
         
+        # Группы
         groups_header = tk.Label(
             left_panel,
             text="ГРУППЫ",
@@ -334,6 +425,7 @@ class P2PMessengerGUI:
         
         tk.Frame(left_panel, height=2, bg=self.colors['accent_primary']).pack(fill=tk.X, padx=10, pady=10)
         
+        # Личные чаты
         private_header = tk.Label(
             left_panel,
             text="ЛИЧНЫЕ ЧАТЫ",
@@ -350,12 +442,13 @@ class P2PMessengerGUI:
             selectbackground=self.colors['accent_secondary'],
             selectforeground='white',
             font=('Arial', 10),
-            height=8,
+            height=10,
             relief=tk.FLAT
         )
         self.peers_listbox.pack(fill=tk.X, padx=10, pady=5)
         self.peers_listbox.bind('<<ListboxSelect>>', self.on_peer_select)
         
+        # Правая панель (чат)
         right_panel = tk.Frame(main_container, bg=self.colors['bg_dark'])
         right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
@@ -368,6 +461,8 @@ class P2PMessengerGUI:
             pady=10
         )
         self.chat_header.pack(fill=tk.X)
+        
+        # Область чата - ТОЛЬКО ДЛЯ ЧТЕНИЯ
         self.chat_area = scrolledtext.ScrolledText(
             right_panel,
             wrap=tk.WORD,
@@ -379,8 +474,11 @@ class P2PMessengerGUI:
             bd=0,
             height=20
         )
+        self.chat_area.config(state=tk.DISABLED)
+        self.chat_area.bind('<Key>', lambda e: 'break')
         self.chat_area.pack(fill=tk.BOTH, expand=True, pady=10)
         
+        # Настройка тегов
         self.chat_area.tag_config('my_message', 
                                   foreground=self.colors['text_accent'],
                                   font=('Segoe UI', 11, 'bold'))
@@ -392,7 +490,11 @@ class P2PMessengerGUI:
         self.chat_area.tag_config('system', 
                                   foreground=self.colors['accent_warning'],
                                   font=('Segoe UI', 10, 'italic'))
+        self.chat_area.tag_config('file_message',
+                                  foreground=self.colors['accent_success'],
+                                  font=('Segoe UI', 10))
         
+        # Панель участников
         self.members_panel = tk.Frame(right_panel, bg=self.colors['bg_medium'], width=200)
         self.members_label = tk.Label(
             self.members_panel,
@@ -438,6 +540,7 @@ class P2PMessengerGUI:
         )
         self.leave_btn.pack(side=tk.LEFT, padx=5)
         
+        # Панель ввода
         input_frame = tk.Frame(right_panel, bg=self.colors['bg_dark'])
         input_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -455,13 +558,15 @@ class P2PMessengerGUI:
         
         attach_btn = tk.Button(
             input_frame,
-            text="📎",
+            text="📎 Файл",
             command=self.send_file_dialog,
             bg=self.colors['bg_light'],
             fg=self.colors['text_secondary'],
-            font=('Arial', 12),
+            font=('Arial', 10),
             bd=0,
-            cursor='hand2'
+            cursor='hand2',
+            padx=10,
+            pady=5
         )
         attach_btn.pack(side=tk.RIGHT, padx=5)
         
@@ -479,6 +584,7 @@ class P2PMessengerGUI:
         )
         send_btn.pack(side=tk.RIGHT)
         
+        # Нижняя панель
         self.bottom_notebook = ttk.Notebook(self.root)
         self.bottom_notebook.pack(fill=tk.X, padx=10, pady=(0, 10))
         
@@ -494,6 +600,13 @@ class P2PMessengerGUI:
         self.refresh_peers_list()
         self.update_status()
     
+    def _append_to_chat(self, text, *tags):
+        """Безопасная запись в чат"""
+        self.chat_area.config(state=tk.NORMAL)
+        self.chat_area.insert(tk.END, text, *tags)
+        self.chat_area.config(state=tk.DISABLED)
+        self.chat_area.see(tk.END)
+    
     def refresh_groups_list(self):
         self.groups_listbox.delete(0, tk.END)
         for group_id, group in self.groups.items():
@@ -506,9 +619,20 @@ class P2PMessengerGUI:
         
         if self.node:
             for peer_host, peer_port in self.node.peers:
-                peer_name = f"Пир {peer_port}"
+                peer_name = f"Пир {peer_host}:{peer_port}"
                 self.peers_listbox.insert(tk.END, peer_name)
                 self.available_peers.append({'name': peer_name, 'ip': peer_host, 'port': peer_port})
+            
+            online_peers = self.node.get_online_peers()
+            for peer in online_peers:
+                peer_name = f"🌍 {peer['username']} ({peer['ip']}:{peer['port']})"
+                if peer_name not in self.peers_listbox.get(0, tk.END):
+                    self.peers_listbox.insert(tk.END, peer_name)
+                    self.available_peers.append({
+                        'name': peer['username'],
+                        'ip': peer['ip'],
+                        'port': peer['port']
+                    })
     
     def on_group_select(self, event):
         selection = self.groups_listbox.curselection()
@@ -544,24 +668,32 @@ class P2PMessengerGUI:
             peer_name = self.peers_listbox.get(selection[0])
             self.chat_header.config(text=f"Личный чат: {peer_name}")
             
+            self.chat_area.config(state=tk.NORMAL)
             self.chat_area.delete(1.0, tk.END)
-            self.chat_area.insert(tk.END, f"Личный чат с {peer_name}\n", 'system')
-            self.chat_area.insert(tk.END, "-" * 50 + "\n", 'system')
+            self._append_to_chat(f"Личный чат с {peer_name}\n", 'system')
+            self._append_to_chat("-" * 50 + "\n", 'system')
+            self.chat_area.config(state=tk.DISABLED)
     
     def load_group_messages(self, group_id):
+        self.chat_area.config(state=tk.NORMAL)
         self.chat_area.delete(1.0, tk.END)
         group = self.groups[group_id]
         
         if group['messages']:
             for msg in group['messages']:
                 sender_tag = 'my_message' if msg['sender'] == self.node.username else 'their_message'
-                self.chat_area.insert(tk.END, f"[{msg['timestamp']}] ", 'timestamp')
-                self.chat_area.insert(tk.END, f"{msg['sender']}: ", sender_tag)
-                self.chat_area.insert(tk.END, f"{msg['content']}\n", 'their_message')
+                self._append_to_chat(f"[{msg['timestamp']}] ", 'timestamp')
+                self._append_to_chat(f"{msg['sender']}: ", sender_tag)
+                
+                if msg.get('is_file'):
+                    self._append_to_chat(f"📎 {msg['content']}\n", 'file_message')
+                else:
+                    self._append_to_chat(f"{msg['content']}\n", 'their_message')
         else:
-            self.chat_area.insert(tk.END, f"Добро пожаловать в группу {group['name']}!\n", 'system')
-            self.chat_area.insert(tk.END, "-" * 50 + "\n", 'system')
+            self._append_to_chat(f"Добро пожаловать в группу {group['name']}!\n", 'system')
+            self._append_to_chat("-" * 50 + "\n", 'system')
         
+        self.chat_area.config(state=tk.DISABLED)
         self.chat_area.see(tk.END)
     
     def send_current_message(self):
@@ -576,22 +708,206 @@ class P2PMessengerGUI:
             msg_data = {
                 'sender': self.node.username,
                 'content': message,
-                'timestamp': timestamp
+                'timestamp': timestamp,
+                'is_file': False
             }
             group['messages'].append(msg_data)
             
-            self.chat_area.insert(tk.END, f"[{timestamp}] ", 'timestamp')
-            self.chat_area.insert(tk.END, f"Вы: ", 'my_message')
-            self.chat_area.insert(tk.END, f"{message}\n", 'their_message')
-            self.chat_area.see(tk.END)
+            self._append_to_chat(f"[{timestamp}] ", 'timestamp')
+            self._append_to_chat(f"Вы: ", 'my_message')
+            self._append_to_chat(f"{message}\n", 'their_message')
             
         elif self.current_private_chat is not None:
-            self.chat_area.insert(tk.END, f"[{timestamp}] ", 'timestamp')
-            self.chat_area.insert(tk.END, f"Вы: ", 'my_message')
-            self.chat_area.insert(tk.END, f"{message}\n", 'their_message')
-            self.chat_area.see(tk.END)
+            peer_name = self.peers_listbox.get(self.current_private_chat)
+            match = re.search(r'\((\d+\.\d+\.\d+\.\d+):(\d+)\)', peer_name)
+            if match:
+                ip, port = match.group(1), int(match.group(2))
+                
+                def send():
+                    self.node.send_message(message, ip, port)
+                
+                threading.Thread(target=send, daemon=True).start()
+            
+            self._append_to_chat(f"[{timestamp}] ", 'timestamp')
+            self._append_to_chat(f"Вы: ", 'my_message')
+            self._append_to_chat(f"{message}\n", 'their_message')
         
         self.message_entry.delete(0, tk.END)
+    
+    def send_file_dialog(self):
+        if not self.node:
+            messagebox.showerror("Ошибка", "Узел не запущен")
+            return
+        
+        filepath = filedialog.askopenfilename(title="Выберите файл для отправки")
+        if not filepath:
+            return
+        
+        filename = os.path.basename(filepath)
+        file_size = os.path.getsize(filepath)
+        
+        if file_size > 5000 * 1024 * 1024:
+            messagebox.showerror("Ошибка", "Файл слишком большой (макс. 5ГB)")
+            return
+        
+        if self.current_private_chat is not None:
+            peer_name = self.peers_listbox.get(self.current_private_chat)
+            match = re.search(r'\((\d+\.\d+\.\d+\.\d+):(\d+)\)', peer_name)
+            if match:
+                ip, port = match.group(1), int(match.group(2))
+                
+                def send():
+                    success, msg = self.node.send_file(filepath, ip, port)
+                    if success:
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        self._append_to_chat(f"[{timestamp}] ", 'timestamp')
+                        self._append_to_chat(f"Вы: ", 'my_message')
+                        self._append_to_chat(f"📎 {filename} ({file_size/1024:.1f} KB)\n", 'file_message')
+                        messagebox.showinfo("Успех", msg)
+                    else:
+                        messagebox.showerror("Ошибка", msg)
+                
+                threading.Thread(target=send, daemon=True).start()
+            else:
+                messagebox.showerror("Ошибка", "Не удалось определить получателя")
+        
+        elif self.current_group:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            self._append_to_chat(f"[{timestamp}] ", 'timestamp')
+            self._append_to_chat(f"Вы: ", 'my_message')
+            self._append_to_chat(f"📎 {filename} ({file_size/1024:.1f} KB)\n", 'file_message')
+            messagebox.showinfo("Файл", f"Файл {filename} отправлен в группу!")
+        
+        else:
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Отправить файл")
+            dialog.geometry("400x350")
+            dialog.configure(bg=self.colors['bg_dark'])
+            dialog.transient(self.root)
+            dialog.grab_set()
+            
+            tk.Label(
+                dialog,
+                text="Отправка файла",
+                font=('Arial', 14, 'bold'),
+                fg=self.colors['text_accent'],
+                bg=self.colors['bg_dark']
+            ).pack(pady=10)
+            
+            tk.Label(
+                dialog,
+                text=f"Файл: {filename}",
+                fg=self.colors['text_primary'],
+                bg=self.colors['bg_dark']
+            ).pack(pady=5)
+            
+            tk.Label(
+                dialog,
+                text="Выберите получателя:",
+                fg=self.colors['text_primary'],
+                bg=self.colors['bg_dark']
+            ).pack(pady=5)
+            
+            recipient_listbox = tk.Listbox(
+                dialog,
+                bg=self.colors['bg_light'],
+                fg=self.colors['text_primary'],
+                selectbackground=self.colors['accent_primary'],
+                font=('Arial', 10),
+                height=8,
+                relief=tk.FLAT
+            )
+            recipient_listbox.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+            
+            for peer in self.available_peers:
+                recipient_listbox.insert(tk.END, peer['name'])
+            
+            tk.Label(
+                dialog,
+                text="Или введите IP и порт вручную:",
+                fg=self.colors['text_secondary'],
+                bg=self.colors['bg_dark']
+            ).pack()
+            
+            ip_frame = tk.Frame(dialog, bg=self.colors['bg_dark'])
+            ip_frame.pack(pady=5)
+            
+            tk.Label(ip_frame, text="IP:", fg=self.colors['text_primary'], bg=self.colors['bg_dark']).pack(side=tk.LEFT, padx=5)
+            ip_entry = tk.Entry(ip_frame, width=15, bg=self.colors['bg_light'], fg=self.colors['text_primary'])
+            ip_entry.pack(side=tk.LEFT, padx=5)
+            
+            tk.Label(ip_frame, text="Порт:", fg=self.colors['text_primary'], bg=self.colors['bg_dark']).pack(side=tk.LEFT, padx=5)
+            port_entry = tk.Entry(ip_frame, width=8, bg=self.colors['bg_light'], fg=self.colors['text_primary'])
+            port_entry.pack(side=tk.LEFT, padx=5)
+            
+            def do_send():
+                selection = recipient_listbox.curselection()
+                if selection:
+                    peer_name = recipient_listbox.get(selection[0])
+                    for peer in self.available_peers:
+                        if peer['name'] == peer_name:
+                            ip, port = peer['ip'], peer['port']
+                            break
+                    else:
+                        messagebox.showerror("Ошибка", "Пир не найден")
+                        return
+                else:
+                    ip = ip_entry.get()
+                    try:
+                        port = int(port_entry.get())
+                    except:
+                        messagebox.showerror("Ошибка", "Введите корректный порт")
+                        return
+                
+                dialog.destroy()
+                
+                def send():
+                    success, msg = self.node.send_file(filepath, ip, port)
+                    if success:
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        self._append_to_chat(f"[{timestamp}] ", 'timestamp')
+                        self._append_to_chat(f"Вы: ", 'my_message')
+                        self._append_to_chat(f"📎 {filename} ({file_size/1024:.1f} KB)\n", 'file_message')
+                        messagebox.showinfo("Успех", msg)
+                    else:
+                        messagebox.showerror("Ошибка", msg)
+                
+                threading.Thread(target=send, daemon=True).start()
+            
+            tk.Button(
+                dialog,
+                text="Отправить",
+                command=do_send,
+                bg=self.colors['accent_primary'],
+                fg='white',
+                font=('Arial', 11),
+                cursor='hand2',
+                relief=tk.FLAT,
+                padx=20,
+                pady=5
+            ).pack(pady=10)
+    
+    def on_message_received(self, message):
+        def update_chat():
+            timestamp = message.timestamp
+            sender = message.sender
+            
+            if message.is_file:
+                tag = 'file_message'
+                content_display = f"Получен файл: {message.filename}"
+            else:
+                tag = 'their_message'
+                content_display = message.content
+            
+            if self.current_private_chat is not None:
+                self._append_to_chat(f"[{timestamp}] ", 'timestamp')
+                self._append_to_chat(f"{sender}: ", tag)
+                self._append_to_chat(f"{content_display}\n", tag)
+            
+            self.root.title(f"Новое сообщение от {sender}")
+            self.root.after(3000, lambda: self.root.title("P2P Мессенджер"))
+        
+        self.root.after(0, update_chat)
     
     def create_group_dialog(self):
         dialog = tk.Toplevel(self.root)
@@ -650,7 +966,7 @@ class P2PMessengerGUI:
         )
         members_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        members_listbox.insert(tk.END, self.node.username)  
+        members_listbox.insert(tk.END, self.node.username)
         
         for peer in self.available_peers:
             if peer['name'] != self.node.username:
@@ -770,7 +1086,6 @@ class P2PMessengerGUI:
             if selection:
                 username = user_listbox.get(selection[0])
                 self.groups[self.current_group]['members'].append(username)
-                
                 self.members_listbox.insert(tk.END, f"👤 {username}")
                 dialog.destroy()
                 messagebox.showinfo("Успех", f"{username} приглашён в группу!")
@@ -807,109 +1122,10 @@ class P2PMessengerGUI:
                 self.refresh_groups_list()
                 self.chat_header.config(text="Выберите чат")
                 self.members_panel.pack_forget()
+                self.chat_area.config(state=tk.NORMAL)
                 self.chat_area.delete(1.0, tk.END)
+                self.chat_area.config(state=tk.DISABLED)
                 messagebox.showinfo("Успех", "Вы покинули группу")
-    
-    def send_file_dialog(self):
-        if not self.node:
-            messagebox.showerror("Ошибка", "Узел не запущен")
-            return
-        
-        filepath = filedialog.askopenfilename(title="Выберите файл для отправки")
-        if not filepath:
-            return
-        
-        if self.current_group:
-            import os
-            filename = os.path.basename(filepath)
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            
-            self.chat_area.insert(tk.END, f"[{timestamp}] ", 'timestamp')
-            self.chat_area.insert(tk.END, f"Вы: ", 'my_message')
-            self.chat_area.insert(tk.END, f"[Файл] {filename}\n", 'system')
-            self.chat_area.see(tk.END)
-            
-            messagebox.showinfo("Файл", f"Файл {filename} отправлен в группу!")
-        else:
-            recipient_window = tk.Toplevel(self.root)
-            recipient_window.title("Отправить файл")
-            recipient_window.geometry("400x250")
-            recipient_window.configure(bg=self.colors['bg_dark'])
-            recipient_window.transient(self.root)
-            recipient_window.grab_set()
-            
-            tk.Label(
-                recipient_window,
-                text="Отправка файла",
-                font=('Arial', 14, 'bold'),
-                fg=self.colors['text_accent'],
-                bg=self.colors['bg_dark']
-            ).pack(pady=10)
-            
-            import os
-            filename = os.path.basename(filepath)
-            tk.Label(
-                recipient_window,
-                text=f"Файл: {filename}",
-                fg=self.colors['text_primary'],
-                bg=self.colors['bg_dark']
-            ).pack(pady=5)
-            
-            tk.Label(
-                recipient_window,
-                text="IP получателя:",
-                fg=self.colors['text_primary'],
-                bg=self.colors['bg_dark']
-            ).pack(pady=5)
-            
-            ip_entry = tk.Entry(recipient_window, width=30, bg=self.colors['bg_light'],
-                                fg=self.colors['text_primary'])
-            ip_entry.pack(pady=5)
-            ip_entry.insert(0, "192.168.1.")
-            
-            tk.Label(
-                recipient_window,
-                text="Порт:",
-                fg=self.colors['text_primary'],
-                bg=self.colors['bg_dark']
-            ).pack(pady=5)
-            
-            port_entry = tk.Entry(recipient_window, width=10, bg=self.colors['bg_light'],
-                                  fg=self.colors['text_primary'])
-            port_entry.pack(pady=5)
-            port_entry.insert(0, "5001")
-            
-            def do_send():
-                try:
-                    ip = ip_entry.get()
-                    port = int(port_entry.get())
-                    recipient_window.destroy()
-                    
-                    success, msg = self.node.send_file_to_peer(filepath, ip, port)
-                    if success:
-                        timestamp = datetime.now().strftime("%H:%M:%S")
-                        self.chat_area.insert(tk.END, f"[{timestamp}] ", 'timestamp')
-                        self.chat_area.insert(tk.END, f"Вы: ", 'my_message')
-                        self.chat_area.insert(tk.END, f"[Файл] {filename}\n", 'system')
-                        self.chat_area.see(tk.END)
-                        messagebox.showinfo("Успех", msg)
-                    else:
-                        messagebox.showerror("Ошибка", msg)
-                except ValueError:
-                    messagebox.showerror("Ошибка", "Порт должен быть числом")
-            
-            tk.Button(
-                recipient_window,
-                text="Отправить",
-                command=do_send,
-                bg=self.colors['accent_primary'],
-                fg='white',
-                font=('Arial', 11),
-                cursor='hand2',
-                relief=tk.FLAT,
-                padx=20,
-                pady=5
-            ).pack(pady=20)
     
     def setup_history_tab(self):
         search_frame = tk.Frame(self.history_frame, bg=self.colors['bg_dark'])
@@ -972,16 +1188,6 @@ class P2PMessengerGUI:
         
         self.refresh_info()
     
-    def on_message_received(self, message):
-        def update_chat():
-            if self.current_private_chat is not None:
-                self.chat_area.insert(tk.END, f"[{message.timestamp}] ", 'timestamp')
-                self.chat_area.insert(tk.END, f"{message.sender}: ", 'their_message')
-                self.chat_area.insert(tk.END, f"{message.content}\n", 'their_message')
-                self.chat_area.see(tk.END)
-        
-        self.root.after(0, update_chat)
-    
     def search_history(self):
         keyword = self.search_entry.get()
         if not keyword:
@@ -1013,13 +1219,17 @@ class P2PMessengerGUI:
             try:
                 peers_count = len(self.node.peers)
                 groups_count = len(self.groups)
-                self.status_label.config(
-                    text=f"{self.node.username} | Порт: {self.node.port} | IP: {self.node.local_ip} | Пиров: {peers_count} | Групп: {groups_count}"
-                )
+                status_text = f"{self.node.username} | Порт: {self.node.port} | IP: {self.node.local_ip}"
+                if self.node.public_ip and self.node.public_ip != self.node.local_ip:
+                    status_text += f" | 🌐 Внешний: {self.node.public_ip}"
+                status_text += f" | 👥 Пиров: {peers_count} | 💬 Групп: {groups_count}"
+                if self.relay_connected:
+                    status_text += " | 📡 Релей-сервер"
+                self.status_label.config(text=status_text)
                 self.refresh_peers_list()
             except:
                 pass
-        self.root.after(2000, self.update_status)
+        self.root.after(3000, self.update_status)
     
     def exit_app(self):
         if self.node:
